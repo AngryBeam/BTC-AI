@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training Progress</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .summary {
+            margin-bottom: 20px;
+        }
+        .summary h2 {
+            color: #444;
+        }
+        .summary ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .summary li {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Training Progress</h1>
+        <div class="summary">
+            <h2>Summary</h2>
+            <ul>
+                <li><strong>Total Episodes:</strong> {{ summary.total_episodes }}</li>
+                <li><strong>Total Retrain Attempts:</strong> {{ summary.total_retrain_attempts }}</li>
+                <li><strong>Best Reward Achieved:</strong> {{ summary.best_reward_achieved }}</li>
+                <li><strong>Latest Test Reward:</strong> {{ summary.latest_test_reward }}</li>
+            </ul>
+        </div>
+        <div id="plot">
+            {{ plot | safe }}
+        </div>
+    </div>
+</body>
+</html>

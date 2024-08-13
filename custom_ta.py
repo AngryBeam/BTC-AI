@@ -3,6 +3,15 @@ from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.trend import MACD, SMAIndicator
 
 def calculate_technical_indicators(df):
+    if not isinstance(df, pd.DataFrame):
+        raise TypeError(f"Expected DataFrame, got {type(df)}")
+    
+    # ตรวจสอบว่ามีคอลัมน์ที่จำเป็นหรือไม่
+    required_columns = ['Open', 'High', 'Low', 'Close', 'Volume BTC', 'Volume USDT']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in DataFrame: {missing_columns}")
+
     # Calculate RSI
     rsi = RSIIndicator(close=df['Close'], window=14)
     df['RSI'] = rsi.rsi()
