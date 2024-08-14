@@ -5,13 +5,13 @@ from logger import setup_logger
 from TradingEmulator import TradingEmulator
 from custom_ta import calculate_technical_indicators  # Import from custom_ta library
 from data_processing import split_data
-from utils import report_progress, get_last_trained_timeframe, find_latest_checkpoint
+from utils import report_progress, get_last_trained_timeframe, find_latest_checkpoint, tensor_to_serializable
 from agent import DQNAgent
 from logger import get_logger
 from config import get_model_file_path, get_final_model_file_path,get_timeframe_model_file_path, PROCESS_NUM, get_checkpoint_path
 import traceback
 import numpy as np
-
+import tensorflow as tf
 logger, _ = get_logger()
 
 
@@ -76,6 +76,11 @@ def run_episode(data, agent, episode, initial_balance, batch_size, scaler, retur
         else:
             metrics = {}
         metrics['total_reward'] = total_reward
+        metrics['average_reward'] = total_reward / len(scaled_data)
+        metrics['loss'] = np.mean(agent.loss_history) if agent.loss_history else None
+        
+        action_counts = np.bincount(agent.action_history, minlength=agent.action_size)
+        metrics['action_distribution'] = action_counts.tolist()
         
         return_dict[episode] = (total_reward, metrics)
         logger.info(f"Episode {episode+1} completed successfully. Total reward: {total_reward}")
@@ -114,26 +119,37 @@ def train_agent(data, agent, state_size, action_size, episodes=500, batch_size=1
             for process in processes:
                 process.join()
             
+            logger.info(f"Episode {i}: All processes completed")
+            logger.info(f"Episode {i}: return_dict keys: {list(return_dict.keys())}")
+
             # Collect and process metrics
             episode_metrics = []
             for episode, result in return_dict.items():
                 if result is not None:
                     reward, metrics = result
                     episode_metrics.append(metrics)
-            
+                else:
+                    logger.warning(f"Episode {episode}: No result returned")
+        
+            logger.info(f"Episode {i}: episode_metrics length: {len(episode_metrics)}")
+
             # Calculate average metrics
             if episode_metrics:
+                logger.info(f"Episode {i+num_processes}: Metrics keys: {episode_metrics[0].keys()}")
+    
+            
                 avg_metrics = {}
                 for key in episode_metrics[0].keys():
                     values = [metrics[key] for metrics in episode_metrics if key in metrics]
-                    if isinstance(values[0], (int, float)):
-                        avg_metrics[key] = sum(values) / len(values)
+                    if isinstance(values[0], (int, float, tf.Tensor)):
+                        avg_metrics[key] = tensor_to_serializable(tf.reduce_mean(values))
                     elif isinstance(values[0], list):
-                        avg_metrics[key] = [sum(x) / len(x) for x in zip(*values)]
+                        avg_metrics[key] = tensor_to_serializable([tf.reduce_mean(x) for x in zip(*values)])
                     else:
                         avg_metrics[key] = values[-1]
                 
                 current_reward = avg_metrics['total_reward']
+                
                 
                 if not best_rewards or current_reward > max(best_rewards):
                     best_rewards.append(current_reward)
@@ -143,15 +159,16 @@ def train_agent(data, agent, state_size, action_size, episodes=500, batch_size=1
                 else:
                     no_improvement += 1
                 
+               
                 # Test on test data
                 test_return_dict = {}
                 run_episode(test, agent, 0, initial_balance, batch_size, scaler, test_return_dict)
                 if 0 in test_return_dict and test_return_dict[0] is not None:
-                    test_reward, _ = test_return_dict[0]
+                    test_reward, test_metrics = test_return_dict[0]
                 else:
                     test_reward = float('-inf')
-                
-                report_progress(agent, i+num_processes, timeframe, test_reward, current_reward, max(best_rewards), retrain_attempts, avg_metrics)
+           
+                report_progress(agent, i+num_processes, timeframe, test_reward, current_reward, max(best_rewards), retrain_attempts, avg_metrics, test_metrics)
                 
                 # Save checkpoint
                 checkpoint_filename = f'checkpoint-episode-{i+num_processes}_{str(uuid.uuid4())}'
@@ -163,7 +180,12 @@ def train_agent(data, agent, state_size, action_size, episodes=500, batch_size=1
                 logger.info(f"Episode {i+num_processes}: Epsilon = {agent.epsilon}")
                 logger.info(f"Episode {i+num_processes}: Average Loss = {avg_metrics.get('loss', 'N/A')}")
                 logger.info(f"Episode {i+num_processes}: Action Distribution = {avg_metrics.get('action_distribution', 'N/A')}")
-                logger.info(f"Episode {i+num_processes}: Average Reward = {avg_metrics.get('reward', 'N/A')}")
+                logger.info(f"Episode {i+num_processes}: Average Reward = {avg_metrics.get('average_reward', 'N/A')}")
+                logger.info(f"Episode {i+num_processes}: All metrics: {avg_metrics}")
+
+            else:
+                logger.info(f"Episode {i}: No metrics to process")
+
 
             if no_improvement >= patience:
                 logger.info(f"Early stopping at episode {i+num_processes}")

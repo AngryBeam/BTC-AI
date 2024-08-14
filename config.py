@@ -20,13 +20,13 @@ def get_log_file_path(run_id):
     #return os.path.join(LOG_DIR, f'training.log')
 
 def get_model_file_path(filename):
-    return os.path.join(MODEL_DIR, 'episode', f'{filename}.h5')
+    return os.path.join(MODEL_DIR, 'episode', f'{filename}.keras')
 
 def get_timeframe_model_file_path(filename):
-    return os.path.join(MODEL_DIR, 'timeframe', f'{filename}.h5')
+    return os.path.join(MODEL_DIR, 'timeframe', f'{filename}.keras')
 
 def get_final_model_file_path(filename):
-    return os.path.join(MODEL_DIR, f'{filename}.h5')
+    return os.path.join(MODEL_DIR, f'{filename}.keras')
 
 def get_checkpoint_path(filename):
-    return os.path.join(CHECKPOINT_DIR, f'{filename}.h5')
+    return os.path.join(CHECKPOINT_DIR, f'{filename}.keras')

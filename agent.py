@@ -231,7 +231,7 @@ class DQNAgent:
             os.makedirs(os.path.dirname(name), exist_ok=True)
             
             # Save the model in .keras format
-            save_model(self.model, f"{name}.keras", save_format="keras")
+            save_model(self.model, f"{name}", save_format="keras")
             
             logger.info(f"Successfully saved model to {name}.keras")
         except Exception as e:
@@ -241,7 +241,7 @@ class DQNAgent:
     def load(self, name):
         try:
             # Load the model in .keras format
-            loaded_model = load_model(f"{name}.keras", compile=False)
+            loaded_model = load_model(f"{name}", compile=False)
             
             # Copy weights to our models
             self.model.set_weights(loaded_model.get_weights())
@@ -260,3 +260,12 @@ class DQNAgent:
     def update_learning_rate(self, factor):
         self.learning_rate *= factor
         self.model.optimizer.learning_rate.assign(self.learning_rate)
+
+    def get_average_loss(self):
+        return np.mean(self.loss_history) if self.loss_history else None
+
+    def get_action_distribution(self):
+        if not self.action_history:
+            return None
+        unique, counts = np.unique(self.action_history, return_counts=True)
+        return dict(zip(unique, counts))

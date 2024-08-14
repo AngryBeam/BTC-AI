@@ -26,21 +26,35 @@ def setup_tensorflow():
     policy = mixed_precision.Policy('mixed_float16')
     mixed_precision.set_global_policy(policy)
 
-def report_progress(agent, episode, timeframe, test_reward, current_reward, best_reward, retrain_attempts, metrics):
+def tensor_to_serializable(obj):
+    if isinstance(obj, tf.Tensor):
+        return obj.numpy().tolist()
+    elif isinstance(obj, dict):
+        return {k: tensor_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [tensor_to_serializable(v) for v in obj]
+    else:
+        return obj
+    
+def report_progress(agent, episode, timeframe, test_reward, current_reward, best_reward, retrain_attempts, avg_metrics, test_metrics):
     progress = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "episode": episode,
-        "timeframe": timeframe,
-        "test_reward": test_reward,
-        "current_reward": current_reward,
-        "best_reward": best_reward,
-        "retrain_attempts": retrain_attempts,
-        "metrics": metrics
+        'episode': episode,
+        'timeframe': timeframe,
+        'test_reward': tensor_to_serializable(test_reward),
+        'current_reward': tensor_to_serializable(current_reward),
+        'best_reward': tensor_to_serializable(best_reward),
+        'retrain_attempts': retrain_attempts,
+        'avg_metrics': tensor_to_serializable(avg_metrics),
+        'test_metrics': tensor_to_serializable(test_metrics)
     }
-    with open(PROGRESS_REPORT_PATH, "a") as f:
-        json.dump(progress, f)
-        f.write("\n")
-    logger.info(f"Progress Report: Episode {episode}, Timeframe {timeframe}, Test Reward {test_reward}")
+    
+    # Convert agent attributes to serializable format
+    agent_dict = {k: tensor_to_serializable(v) for k, v in agent.__dict__.items() if not k.startswith('_')}
+    progress['agent'] = agent_dict
+
+    with open(PROGRESS_REPORT_PATH, 'a') as f:
+        json.dump(progress, f, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
+        f.write('\n') 
 
 def find_latest_checkpoint():
     checkpoints = glob.glob(os.path.join(CHECKPOINT_DIR, "*.h5"))
@@ -51,14 +65,22 @@ def find_latest_checkpoint():
 
 def get_last_trained_timeframe():
     try:
-        with open(PROGRESS_REPORT_PATH, "r") as f:
+        with open('progress.json', 'r') as f:
             lines = f.readlines()
-            if lines:
-                last_report = json.loads(lines[-1])
-                return last_report["timeframe"]
+        
+        if not lines:
+            return None
+        
+        for line in reversed(lines):
+            try:
+                last_report = json.loads(line.strip())
+                return last_report.get('timeframe')
+            except json.JSONDecodeError:
+                continue
+        
+        return None
     except FileNotFoundError:
-        pass
-    return None
+        return None
 
 def analyze_progress_report():
     df = pd.read_json(PROGRESS_REPORT_PATH, lines=True)

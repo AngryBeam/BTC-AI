@@ -107,8 +107,8 @@ class PrioritizedReplayBuffer:
         self.tree.add(p, sample)
 
         # Add debugging information
-        print(f"Adding sample: {sample}")
-        print(f"Sample type: {type(sample)}")
+        #print(f"Adding sample: {sample}")
+        #print(f"Sample type: {type(sample)}")
 
     def sample(self, batch_size):
         batch = []
