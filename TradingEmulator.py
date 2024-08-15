@@ -10,6 +10,7 @@ class TradingEmulator:
         self.max_profit = 0
         self.max_drawdown = 0
         self.unrealized_pnl = 0
+        self.unrealized_pnl_eachSide = {'long': 0, 'short': 0}
         self.max_loss = initial_balance * max_loss_percentage
         self.max_capital_load = max_capital_load * initial_balance
         self.balance_history = [initial_balance]
@@ -19,6 +20,8 @@ class TradingEmulator:
         self.max_position = {'long': 0, 'short': 0}
         self.trading_count = {'long': 0, 'short': 0}
         self.returns = []
+        self.current_price = 0
+        self.previous_price = 0
         logger, _ = get_logger()
         self.logger = logger
 
@@ -86,6 +89,8 @@ class TradingEmulator:
 
     def update(self, current_price):
         try:
+            self.previous_price = self.current_price
+            self.current_price = current_price
             #self.logger.info(f"Updating with current price: {current_price}")
             for order in self.open_orders:
                 if order['side'] == 'long':
@@ -100,13 +105,21 @@ class TradingEmulator:
                         self.close_position('short', order['amount'], order['sl'])
             
             self.open_orders = [order for order in self.open_orders if order['amount'] > 0]
-            
+            '''
             self.unrealized_pnl = sum([(current_price - order['entry_price']) * order['amount'] 
                                     for order in self.open_orders if order['side'] == 'long']) + \
                                 sum([(order['entry_price'] - current_price) * order['amount'] 
                                     for order in self.open_orders if order['side'] == 'short'])
-            
+            '''
+            # Calculate unrealized P&L for each side
+            self.unrealized_pnl_eachSide['long'] = sum([(current_price - order['entry_price']) * order['amount'] 
+                                               for order in self.open_orders if order['side'] == 'long'])
+            self.unrealized_pnl_eachSide['short'] = sum([(order['entry_price'] - current_price) * order['amount'] 
+                                                for order in self.open_orders if order['side'] == 'short'])
+            self.unrealized_pnl = self.unrealized_pnl_eachSide['long'] + self.unrealized_pnl_eachSide['short']
+
             total_pnl = self.balance - self.initial_balance + self.unrealized_pnl
+            
             self.max_profit = max(self.max_profit, total_pnl)
             self.max_drawdown = min(self.max_drawdown, total_pnl)
             self.max_position['long'] = max(self.max_position['long'], self.position['long'])
@@ -203,3 +216,67 @@ class TradingEmulator:
         reward = profit + sharpe + drawdown_penalty + holding_reward
         
         return reward
+    
+
+    def get_partial_close_amount(position_size, unrealized_pnl, current_volatility):
+            base_percentage = 0.1  # Start with 10%
+            
+            # Adjust based on unrealized P&L
+            if unrealized_pnl > 0:
+                base_percentage += min(unrealized_pnl / position_size, 0.2)
+            else:
+                base_percentage -= min(abs(unrealized_pnl) / position_size, 0.05)
+            
+            # Adjust based on market volatility
+            base_percentage += current_volatility * 0.1
+            
+            # Ensure we're closing between 10% and 50% of the position
+            close_percentage = max(min(base_percentage, 0.5), 0.1)
+            
+            return position_size * close_percentage
+    
+    def take_action(self, action, volume, current_price, price_change, current_volatility):
+        position_size = 0.5 * (1 + current_volatility)  # Increase position size in volatile markets
+
+        if action == 0:  # Hold
+                pass
+        elif action == 1:  # Open Long
+            self.open_position('long', volume, current_price)
+        elif action == 2:  # Open Short
+            self.open_position('short', volume, current_price)
+        elif action == 3:  # Close All positions
+            self.close_all_positions(current_price)
+        elif action == 4:  # Close All Long
+            self.close_position('long', self.position['long'], current_price)
+        elif action == 5:  # Close All Short
+            self.close_position('short', self.position['short'], current_price)
+        elif action == 6:  # Partial Close Long
+            close_amount = self.get_partial_close_amount(self.position['long'], self.unrealized_pnl_eachSide['long'], current_volatility)
+            self.close_position('long', close_amount, current_price)
+        elif action == 7:  # Partial Close Short
+            close_amount = self.get_partial_close_amount(self.position['short'], self.unrealized_pnl_eachSide['short'], current_volatility)
+            self.close_position('short', close_amount, current_price)
+        elif action == 8:  # Hold Position - Long
+            pass
+        elif action == 9:  # Hold Position - Short
+            pass
+        elif action == 10:  # Hold Long and Close Short
+            self.close_position('short', self.position['short'], current_price)
+        elif action == 11:  # Hold Short and Close Long
+            self.close_position('long', self.position['long'], current_price)
+        elif action == 12:  # Hold Long and close some short
+            self.close_position('short', self.position['short'] * 0.5, current_price)
+        elif action == 13:  # Hold Short and close some long
+            self.close_position('long', self.position['long'] * 0.5, current_price)
+        elif action == 14:  # Open more Long when dip
+            if price_change < -0.01:  # Define dip threshold
+                self.open_position('long', position_size, current_price)
+        elif action == 15:  # Open more Short when Spike
+            if price_change > 0.01:  # Define spike threshold
+                self.open_position('short', position_size, current_price)
+        elif action == 16:  # Open more Long even price is spike
+            if price_change > 0.01:  # Define spike threshold
+                self.open_position('long', position_size, current_price)
+        elif action == 17:  # Open more Short when dip
+            if price_change < -0.01:  # Define dip threshold
+                self.open_position('short', position_size, current_price)

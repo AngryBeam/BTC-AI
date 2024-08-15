@@ -8,7 +8,7 @@ from logger import get_logger
 import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import numpy as np
 
 logger, _ = get_logger()
 def setup_tensorflow():
@@ -38,6 +38,7 @@ def tensor_to_serializable(obj):
     
 def report_progress(agent, episode, timeframe, test_reward, current_reward, best_reward, retrain_attempts, avg_metrics, test_metrics):
     progress = {
+        'timestamp': datetime.datetime.now().isoformat(),
         'episode': episode,
         'timeframe': timeframe,
         'test_reward': tensor_to_serializable(test_reward),
@@ -82,21 +83,68 @@ def get_last_trained_timeframe():
     except FileNotFoundError:
         return None
 
-def analyze_progress_report():
-    df = pd.read_json(PROGRESS_REPORT_PATH, lines=True)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # Instead of plotting, return the data
-    analysis = df[['episode', 'test_reward', 'best_reward']].to_dict('records')
-    
+def analyze_progress_report(file_path='logs/ai_progress_report.json'):
+    with open(file_path, 'r') as f:
+        progress_data = [json.loads(line) for line in f]
+
+    episodes = [entry['episode'] for entry in progress_data]
+    test_rewards = [entry['test_reward'] for entry in progress_data]
+    current_rewards = [entry['current_reward'] for entry in progress_data]
+    best_rewards = [entry['best_reward'] for entry in progress_data]
+    timestamps = [datetime.datetime.fromisoformat(entry['timestamp']) for entry in progress_data]
+
+    # Calculate time differences
+    time_diffs = [(timestamps[i+1] - timestamps[i]).total_seconds() / 60 for i in range(len(timestamps)-1)]
+    avg_time_per_episode = sum(time_diffs) / len(time_diffs) if time_diffs else 0
+
+    # Analyze metrics
+    last_entry = progress_data[-1]
+    avg_metrics = last_entry['avg_metrics']
+    test_metrics = last_entry['test_metrics']
+
     summary = {
-        "total_episodes": df['episode'].max(),
-        "total_retrain_attempts": df['retrain_attempts'].max(),
-        "best_reward_achieved": df['best_reward'].max(),
-        "latest_test_reward": df['test_reward'].iloc[-1]
+        "total_episodes": len(episodes),
+        "avg_time_per_episode": round(avg_time_per_episode, 2),
+        "final_test_reward": round(test_rewards[-1], 2),
+        "final_current_reward": round(current_rewards[-1], 2),
+        "final_best_reward": round(best_rewards[-1], 2),
+        "avg_metrics": avg_metrics,
+        "test_metrics": test_metrics
     }
-    
+
+    analysis = [
+        {
+            "episode": episode,
+            "test_reward": test_reward,
+            "current_reward": current_reward,
+            "best_reward": best_reward,
+            "timestamp": timestamp.isoformat()
+        }
+        for episode, test_reward, current_reward, best_reward, timestamp
+        in zip(episodes, test_rewards, current_rewards, best_rewards, timestamps)
+    ]
+
     return {
-        "analysis": analysis,
-        "summary": summary
+        "summary": summary,
+        "analysis": analysis
     }
+
+def calculate_market_volatility(data, window=20, trading_periods=252):
+        """
+        Calculate the market volatility using a rolling standard deviation of returns.
+        
+        :param data: pandas DataFrame with a 'Close' column
+        :param window: the rolling window for calculating volatility (default: 20 days)
+        :param trading_periods: number of trading periods in a year (default: 252 for daily data)
+        :return: annualized volatility
+        """
+        # Calculate daily returns
+        returns = data['Close'].pct_change()
+        
+        # Calculate rolling standard deviation of returns
+        rolling_std = returns.rolling(window=window).std()
+        
+        # Annualize the volatility
+        annualized_vol = rolling_std * np.sqrt(trading_periods)
+        
+        return annualized_vol.iloc[-1]  # Return the most recent volatility value

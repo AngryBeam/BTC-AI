@@ -1,5 +1,8 @@
 import numpy as np
+from logger import get_logger
+import ray
 
+logger, _ = get_logger()
 class SumTree:
     def __init__(self, capacity):
         self.capacity = capacity
@@ -56,7 +59,7 @@ class PrioritizedReplayBuffer:
         self.max_priority = 1.0
 
     def _get_priority(self, error):
-        return min(abs(error) + self.epsilon, self.max_priority) ** self.alpha
+        return min((abs(error) + self.epsilon) ** self.alpha, self.max_priority)
 
     def add(self, error, sample):
         p = self._get_priority(error)
@@ -68,13 +71,14 @@ class PrioritizedReplayBuffer:
         segment = self.tree.total() / batch_size
         priorities = []
 
-        self.beta = min(1.0, self.beta + self.beta_increment)
-
         for i in range(batch_size):
             a = segment * i
             b = segment * (i + 1)
 
-            s = np.random.uniform(a, b)
+            # Use logarithmic scaling to handle large values
+            log_a, log_b = np.log(max(1, a)), np.log(max(1, b))
+            s = np.exp(np.random.uniform(log_a, log_b))
+
             idx, p, data = self.tree.get(s)
             priorities.append(p)
             batch.append(data)
@@ -93,8 +97,31 @@ class PrioritizedReplayBuffer:
 
     def __len__(self):
         return self.tree.n_entries
+
+    def increase_beta(self):
+        self.beta = min(1.0, self.beta + self.beta_increment)
+
+@ray.remote
+class RayCompatibleSumTree(SumTree):
+    def __init__(self, capacity):
+        super().__init__(capacity)
+
+    def add(self, p, data):
+        super().add(p, data)
+
+    def update(self, idx, p):
+        super().update(idx, p)
+
+    def get(self, s):
+        return super().get(s)
+
+    def total(self):
+        return super().total()
+
+@ray.remote
+class RayCompatiblePrioritizedReplayBuffer(PrioritizedReplayBuffer):
     def __init__(self, capacity, alpha=0.6, beta=0.4, beta_increment=0.001, epsilon=0.01):
-        self.tree = SumTree(capacity)
+        self.tree = RayCompatibleSumTree.remote(capacity)
         self.capacity = capacity
         self.alpha = alpha
         self.beta = beta
@@ -102,44 +129,44 @@ class PrioritizedReplayBuffer:
         self.epsilon = epsilon
         self.max_priority = 1.0
 
+    def _get_priority(self, error):
+        return min((abs(error) + self.epsilon) ** self.alpha, self.max_priority)
+
     def add(self, error, sample):
         p = self._get_priority(error)
-        self.tree.add(p, sample)
-
-        # Add debugging information
-        #print(f"Adding sample: {sample}")
-        #print(f"Sample type: {type(sample)}")
+        ray.get(self.tree.add.remote(p, sample))
 
     def sample(self, batch_size):
         batch = []
         idxs = []
-        segment = self.tree.total() / batch_size
+        segment = ray.get(self.tree.total.remote()) / batch_size
         priorities = []
 
         for i in range(batch_size):
             a = segment * i
             b = segment * (i + 1)
 
-            s = np.random.uniform(a, b)
-            idx, p, data = self.tree.get(s)
+            log_a, log_b = np.log(max(1, a)), np.log(max(1, b))
+            s = np.exp(np.random.uniform(log_a, log_b))
+
+            idx, p, data = ray.get(self.tree.get.remote(s))
             priorities.append(p)
             batch.append(data)
             idxs.append(idx)
 
-        sampling_probabilities = np.array(priorities) / self.tree.total()
+        sampling_probabilities = np.array(priorities) / ray.get(self.tree.total.remote())
         is_weights = np.power(self.tree.n_entries * sampling_probabilities, -self.beta)
         is_weights /= is_weights.max()
-
-        # Add debugging information
-        print(f"Batch type: {type(batch)}")
-        print(f"First item in batch: {batch[0]}")
 
         return batch, idxs, is_weights
 
     def update(self, idx, error):
-        priority = (error + self.epsilon) ** self.alpha
-        self.tree.update(idx, priority)
+        priority = self._get_priority(error)
+        ray.get(self.tree.update.remote(idx, priority))
         self.max_priority = max(self.max_priority, priority)
 
     def __len__(self):
-        return self.tree.n_entries
+        return ray.get(self.tree.n_entries)
+
+    def increase_beta(self):
+        self.beta = min(1.0, self.beta + self.beta_increment)

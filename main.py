@@ -61,7 +61,15 @@ if __name__ == "__main__":
         #sys.exit()
         performance_threshold = 0.8
         logger.info(f"Starting training with performance threshold: {performance_threshold}")
-        train_on_timeframes(timeframes, state_size, action_size, performance_threshold)
+        
+        '''
+        Only work with Standard and multiprocessing
+        '''
+        methods = ['standard', 'threading', 'multiprocessing', 'ray', 'threadpool', 'queue']
+        select_method = methods[2]
+
+        logger.info(f"Processing Training with method: {select_method}")
+        train_on_timeframes(timeframes, state_size, action_size, performance_threshold,use_process_num=8, training_method=select_method)
         
         logger.info("Training completed on all timeframes")
     except Exception as e:

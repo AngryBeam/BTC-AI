@@ -144,17 +144,28 @@ async def get_training_progress(request: Request):
         analysis = result["analysis"]
         summary = result["summary"]
         
-        # Create a graph comparing test_reward with best_reward
-        episodes = [entry['episode'] for entry in analysis]
-        test_rewards = [entry['test_reward'] for entry in analysis]
-        best_rewards = [entry['best_reward'] for entry in analysis]
+        # Process data for plotting
+        episodes = []
+        test_rewards = []
+        current_rewards = []
+        current_episode = 0
+        current_retrain = 0
         
+        for entry in analysis:
+            if entry['episode'] == 0:  # New retrain starts
+                current_retrain += 1
+            
+            episodes.append(f"{current_retrain}-{entry['episode']}")
+            test_rewards.append(entry['test_reward'])
+            current_rewards.append(entry['current_reward'])
+        
+        # Create a graph comparing test_reward with current_reward
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=episodes, y=test_rewards, mode='lines', name='Test Reward'))
-        fig.add_trace(go.Scatter(x=episodes, y=best_rewards, mode='lines', name='Best Reward'))
+        fig.add_trace(go.Scatter(x=episodes, y=current_rewards, mode='lines', name='Current Reward'))
         
         fig.update_layout(
-            title='Training Progress: Test Reward vs Best Reward',
+            title='Training Progress: Test Reward vs Current Reward',
             xaxis_title='Episode',
             yaxis_title='Reward',
             legend_title='Metrics'
@@ -170,8 +181,8 @@ async def get_training_progress(request: Request):
             "summary": summary
         })
     except Exception as e:
+        logger.error(f"Error in get_training_progress: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    
 
 if __name__ == "__main__":
     import uvicorn
