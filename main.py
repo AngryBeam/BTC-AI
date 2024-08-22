@@ -1,6 +1,6 @@
 import pandas as pd
 from logger import get_logger
-
+import uuid
 import os
 import sys
 from agent import DQNAgent
@@ -10,13 +10,37 @@ from utils import setup_tensorflow
 from config import TRAINING_DATA_PATH
 from custom_ta import calculate_technical_indicators
 import traceback
+import multiprocessing
+import platform
+import tensorflow as tf
 
-os.environ["OMP_NUM_THREADS"] = "4"  # Adjust this number based on your CPU cores
-os.environ["TF_NUM_INTRAOP_THREADS"] = "4"
-os.environ["TF_NUM_INTEROP_THREADS"] = "4"
+#os.environ["OMP_NUM_THREADS"] = "4"  # Adjust this number based on your CPU cores
+#os.environ["TF_NUM_INTRAOP_THREADS"] = "4"
+#os.environ["TF_NUM_INTEROP_THREADS"] = "4"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+gpus = tf.config.list_physical_devices('GPU')
+tf.config.threading.set_intra_op_parallelism_threads(0)
+tf.config.threading.set_inter_op_parallelism_threads(0)
+#tf.config.optimizer.set_jit(True)  # เปิดใช้ XLA JIT compilation
 
 if __name__ == "__main__":
+    train_id = run_id = str(uuid.uuid4())
+
+    if os.name == 'posix':  # 'posix' represents Unix-like systems, including Linux
+        #pass
+        multiprocessing.set_start_method('spawn')
+    if gpus:
+        try:
+            # ใช้ GPU ทั้งหมดที่มี
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            print(e)
+    else:
+        print("No GPU available, using CPU instead")
     try:
         print("Getting logger")
         logger, run_id = get_logger()
@@ -65,11 +89,11 @@ if __name__ == "__main__":
         '''
         Only work with Standard and multiprocessing
         '''
-        methods = ['standard', 'threading', 'multiprocessing', 'ray', 'threadpool', 'queue']
-        select_method = methods[2]
+        methods = ['standard', 'multiprocessing']
+        select_method = methods[0]
 
         logger.info(f"Processing Training with method: {select_method}")
-        train_on_timeframes(timeframes, state_size, action_size, performance_threshold,use_process_num=8, training_method=select_method)
+        train_on_timeframes(timeframes, state_size, action_size, performance_threshold,use_process_num=8, training_method=select_method, mcts=True)
         
         logger.info("Training completed on all timeframes")
     except Exception as e:

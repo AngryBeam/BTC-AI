@@ -13,18 +13,33 @@ import numpy as np
 logger, _ = get_logger()
 def setup_tensorflow():
     logger.info('Staring setup_tensorflow')
-    # Set TensorFlow to use all available cores
-    tf.config.threading.set_intra_op_parallelism_threads(0)
-    tf.config.threading.set_inter_op_parallelism_threads(0)
-    # Check for GPU availability
-    logger.info('Checking for GPU available')
-    physical_devices = tf.config.list_physical_devices('GPU')
-    if physical_devices:
-        logger.info("GPU is available. Using GPU for training.")
-        tf.config.experimental.set_memory_growth(physical_devices[0], True)
     logger.info('Setting up additional config')
+    
     policy = mixed_precision.Policy('mixed_float16')
     mixed_precision.set_global_policy(policy)
+
+def scaler_info(scaler, data):
+    # Log sample of original data
+    logger.info("Sample of original data:")
+    logger.info(data.head())
+    
+    # Log sample of scaled data
+    scaled_data = scaler.transform(data.values)
+    logger.info("Sample of scaled data:")
+    logger.info(scaled_data[:5])  # Log first 5 rows
+    
+    # Log scaler parameters
+    logger.info("Scaler parameters:")
+    logger.info(f"Data min: {scaler.data_min_}")
+    logger.info(f"Data max: {scaler.data_max_}")
+    logger.info(f"Data range: {scaler.data_range_}")
+    
+    # Log statistics of scaled data
+    logger.info("Scaled data statistics:")
+    logger.info(f"Min values: {np.min(scaled_data, axis=0)}")
+    logger.info(f"Max values: {np.max(scaled_data, axis=0)}")
+    logger.info(f"Mean values: {np.mean(scaled_data, axis=0)}")
+    logger.info(f"Std values: {np.std(scaled_data, axis=0)}")
 
 def tensor_to_serializable(obj):
     if isinstance(obj, tf.Tensor):
@@ -37,8 +52,16 @@ def tensor_to_serializable(obj):
         return obj
     
 def report_progress(agent, episode, timeframe, test_reward, current_reward, best_reward, retrain_attempts, avg_metrics, test_metrics):
+    # ลบ balance_history จาก avg_metrics และ test_metrics ก่อน
+    if isinstance(avg_metrics, dict) and ('balance_history' in avg_metrics):
+        avg_metrics.pop('balance_history', None)
+    
+    if isinstance(test_metrics, dict) and ('balance_history' in test_metrics):
+        test_metrics.pop('balance_history', None)
+
+    
     progress = {
-        'timestamp': datetime.datetime.now().isoformat(),
+        'timestamp': datetime.datetime.now().strftime("%Y %b %d %H:%M:%S"),
         'episode': episode,
         'timeframe': timeframe,
         'test_reward': tensor_to_serializable(test_reward),
@@ -50,15 +73,15 @@ def report_progress(agent, episode, timeframe, test_reward, current_reward, best
     }
     
     # Convert agent attributes to serializable format
-    agent_dict = {k: tensor_to_serializable(v) for k, v in agent.__dict__.items() if not k.startswith('_')}
-    progress['agent'] = agent_dict
+    #agent_dict = {k: tensor_to_serializable(v) for k, v in agent.__dict__.items() if not k.startswith('_')}
+    #progress['agent'] = agent_dict
 
     with open(PROGRESS_REPORT_PATH, 'a') as f:
         json.dump(progress, f, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
         f.write('\n') 
 
 def find_latest_checkpoint():
-    checkpoints = glob.glob(os.path.join(CHECKPOINT_DIR, "*.h5"))
+    checkpoints = glob.glob(os.path.join(CHECKPOINT_DIR, "*.keras"))
     if checkpoints:
         latest = max(checkpoints, key=os.path.getctime)
         return latest
@@ -86,12 +109,32 @@ def get_last_trained_timeframe():
 def analyze_progress_report(file_path='logs/ai_progress_report.json'):
     with open(file_path, 'r') as f:
         progress_data = [json.loads(line) for line in f]
+    
+    analysis = []
+    episodes = []
+    test_rewards = []
+    current_rewards = []
+    best_rewards = []
+    timestamps = []
 
-    episodes = [entry['episode'] for entry in progress_data]
-    test_rewards = [entry['test_reward'] for entry in progress_data]
-    current_rewards = [entry['current_reward'] for entry in progress_data]
-    best_rewards = [entry['best_reward'] for entry in progress_data]
-    timestamps = [datetime.datetime.fromisoformat(entry['timestamp']) for entry in progress_data]
+    for entry in progress_data:
+        episodes.append(entry['episode'])
+        test_rewards.append(entry['test_reward'])
+        current_rewards.append(entry['current_reward'])
+        best_rewards.append(entry['best_reward'])
+        timestamps.append(datetime.datetime.fromisoformat(entry['timestamp']))
+        
+        analysis_entry = {
+            'episode': entry['episode'],
+            'test_reward': entry['test_reward'],
+            'current_reward': entry['current_reward'],
+            'best_reward': entry['best_reward'],
+            'timestamp': entry['timestamp'],
+            'test_metrics': entry.get('test_metrics', {}),
+            'avg_metrics': entry.get('avg_metrics', {}),
+            'agent': entry.get('agent', {})
+        }
+        analysis.append(analysis_entry)
 
     # Calculate time differences
     time_diffs = [(timestamps[i+1] - timestamps[i]).total_seconds() / 60 for i in range(len(timestamps)-1)]
@@ -103,7 +146,7 @@ def analyze_progress_report(file_path='logs/ai_progress_report.json'):
     test_metrics = last_entry['test_metrics']
 
     summary = {
-        "total_episodes": len(episodes),
+        "progress_count": len(episodes),
         "avg_time_per_episode": round(avg_time_per_episode, 2),
         "final_test_reward": round(test_rewards[-1], 2),
         "final_current_reward": round(current_rewards[-1], 2),
@@ -111,18 +154,6 @@ def analyze_progress_report(file_path='logs/ai_progress_report.json'):
         "avg_metrics": avg_metrics,
         "test_metrics": test_metrics
     }
-
-    analysis = [
-        {
-            "episode": episode,
-            "test_reward": test_reward,
-            "current_reward": current_reward,
-            "best_reward": best_reward,
-            "timestamp": timestamp.isoformat()
-        }
-        for episode, test_reward, current_reward, best_reward, timestamp
-        in zip(episodes, test_rewards, current_rewards, best_rewards, timestamps)
-    ]
 
     return {
         "summary": summary,

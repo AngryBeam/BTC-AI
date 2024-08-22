@@ -214,26 +214,26 @@ class TradingEmulator:
         
         # Combine all factors
         reward = profit + sharpe + drawdown_penalty + holding_reward
-        
+        reward = (self.balance - self.initial_balance + self.unrealized_pnl) + holding_reward
         return reward
     
 
-    def get_partial_close_amount(position_size, unrealized_pnl, current_volatility):
-            base_percentage = 0.1  # Start with 10%
-            
-            # Adjust based on unrealized P&L
-            if unrealized_pnl > 0:
-                base_percentage += min(unrealized_pnl / position_size, 0.2)
-            else:
-                base_percentage -= min(abs(unrealized_pnl) / position_size, 0.05)
-            
-            # Adjust based on market volatility
-            base_percentage += current_volatility * 0.1
-            
-            # Ensure we're closing between 10% and 50% of the position
-            close_percentage = max(min(base_percentage, 0.5), 0.1)
-            
-            return position_size * close_percentage
+    def get_partial_close_amount(self, position_size, unrealized_pnl, current_volatility):
+        base_percentage = 0.1  # Start with 10%
+        
+        # Adjust based on unrealized P&L
+        if unrealized_pnl > 0:
+            base_percentage += min(unrealized_pnl / position_size, 0.2)
+        else:
+            base_percentage -= min(abs(unrealized_pnl) / position_size, 0.05)
+        
+        # Adjust based on market volatility
+        base_percentage += current_volatility * 0.1
+        
+        # Ensure we're closing between 10% and 50% of the position
+        close_percentage = max(min(base_percentage, 0.5), 0.1)
+        
+        return position_size * close_percentage
     
     def take_action(self, action, volume, current_price, price_change, current_volatility):
         position_size = 0.5 * (1 + current_volatility)  # Increase position size in volatile markets
@@ -251,11 +251,13 @@ class TradingEmulator:
         elif action == 5:  # Close All Short
             self.close_position('short', self.position['short'], current_price)
         elif action == 6:  # Partial Close Long
-            close_amount = self.get_partial_close_amount(self.position['long'], self.unrealized_pnl_eachSide['long'], current_volatility)
-            self.close_position('long', close_amount, current_price)
+            if (self.position['long']>0):
+                close_amount = self.get_partial_close_amount(self.position['long'], self.unrealized_pnl_eachSide['long'], current_volatility)
+                self.close_position('long', close_amount, current_price)
         elif action == 7:  # Partial Close Short
-            close_amount = self.get_partial_close_amount(self.position['short'], self.unrealized_pnl_eachSide['short'], current_volatility)
-            self.close_position('short', close_amount, current_price)
+            if (self.position['short'] > 0):
+                close_amount = self.get_partial_close_amount(self.position['short'], self.unrealized_pnl_eachSide['short'], current_volatility)
+                self.close_position('short', close_amount, current_price)
         elif action == 8:  # Hold Position - Long
             pass
         elif action == 9:  # Hold Position - Short

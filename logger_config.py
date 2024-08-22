@@ -2,6 +2,7 @@ import logging
 import os
 import uuid
 from logging.handlers import RotatingFileHandler
+import time
 
 class ErrorLogFilter(logging.Filter):
     def filter(self, record):
@@ -12,8 +13,8 @@ def setup_logger(run_id=None):
 
     if run_id is None:
         run_id = str(uuid.uuid4())
-
-    logger = logging.getLogger(f'BTC_AI_{run_id}')
+    current_time = int(time.time())
+    logger = logging.getLogger(f'{current_time}_{run_id}')
     logger.setLevel(logging.INFO)
     
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
